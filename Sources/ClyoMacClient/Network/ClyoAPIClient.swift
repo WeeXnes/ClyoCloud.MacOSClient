@@ -119,7 +119,11 @@ public final class ClyoAPIClient {
         var req = createRequest(url: url, method: "POST")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let body: [String: Any] = ["tempToken": tempToken, "token": code]
+        let body: [String: Any] = [
+            "tempToken": tempToken,
+            "code": code,
+            "token": code
+        ]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: req)
