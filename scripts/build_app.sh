@@ -36,5 +36,8 @@ if [ -f "$ROOT_DIR/../ClyoCloud/public/wicon.png" ]; then
     cp "$ROOT_DIR/../ClyoCloud/public/wicon.png" "$RESOURCES_DIR/AppIcon.png"
 fi
 
-echo "==> Successfully created $APP_DIR"
+# Ad-hoc code sign the bundle for consistent macOS identity
+codesign --force --deep -s - "$APP_DIR"
+
+echo "==> Successfully created and signed $APP_DIR"
 echo "You can launch it via: open '$APP_DIR'"
