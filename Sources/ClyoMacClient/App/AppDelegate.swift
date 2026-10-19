@@ -9,6 +9,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Run as an accessory app (No Dock icon, menu bar only)
         NSApp.setActivationPolicy(.accessory)
 
+        // Initialize core state & settings
+        _ = SettingsManager.shared
+        _ = AppState.shared
+
         // Initialize Menu Bar & Popover
         MenuBarController.shared.setup()
 

@@ -33,12 +33,32 @@ public final class SettingsManager: ObservableObject {
         didSet { saveSyncFolderPairs() }
     }
 
+    private var launchAgentURL: URL {
+        let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
+        return libraryURL.appendingPathComponent("LaunchAgents").appendingPathComponent("dev.weexnes.clyocloud.plist")
+    }
+
     private init() {
         self.serverUrl = UserDefaults.standard.string(forKey: serverUrlKey) ?? "http://localhost:6969"
         self.username = UserDefaults.standard.string(forKey: usernameKey) ?? ""
         self.defaultUploadPath = UserDefaults.standard.string(forKey: uploadPathKey) ?? ""
         self.launchAtLogin = UserDefaults.standard.bool(forKey: launchAtLoginKey)
         self.syncFolderPairs = loadSyncFolderPairs()
+
+        let storedLaunchAtLogin = UserDefaults.standard.bool(forKey: launchAtLoginKey)
+        let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
+        let agentExists = FileManager.default.fileExists(atPath: libraryURL.appendingPathComponent("LaunchAgents").appendingPathComponent("dev.weexnes.clyocloud.plist").path)
+
+        var smEnabled = false
+        if #available(macOS 13.0, *) {
+            smEnabled = (SMAppService.mainApp.status == .enabled)
+        }
+
+        let shouldBeEnabled = storedLaunchAtLogin || smEnabled || agentExists
+        self.launchAtLogin = shouldBeEnabled
+        if shouldBeEnabled {
+            updateLaunchAtLogin(true)
+        }
     }
 
     private func loadSyncFolderPairs() -> [SyncFolderPair] {
@@ -70,20 +90,84 @@ public final class SettingsManager: ObservableObject {
     }
 
     private func updateLaunchAtLogin(_ enabled: Bool) {
-        if #available(macOS 13.0, *) {
-            do {
-                if enabled {
+        if enabled {
+            if #available(macOS 13.0, *) {
+                do {
                     if SMAppService.mainApp.status == .notRegistered {
                         try SMAppService.mainApp.register()
                     }
-                } else {
-                    if SMAppService.mainApp.status == .enabled {
-                        try SMAppService.mainApp.unregister()
-                    }
+                } catch {
+                    print("SMAppService registration note: \(error)")
                 }
-            } catch {
-                print("Failed to toggle Launch at Login: \(error)")
             }
+            // Always ensure LaunchAgent is in place so autostart works reliably across all environments
+            installLaunchAgent()
+        } else {
+            if #available(macOS 13.0, *) {
+                if SMAppService.mainApp.status == .enabled {
+                    try? SMAppService.mainApp.unregister()
+                }
+            }
+            removeLaunchAgent()
+        }
+    }
+
+    private func installLaunchAgent() {
+        let launchAgentDir = launchAgentURL.deletingLastPathComponent()
+        if !FileManager.default.fileExists(atPath: launchAgentDir.path) {
+            try? FileManager.default.createDirectory(at: launchAgentDir, withIntermediateDirectories: true)
+        }
+
+        let appPath: String
+        let mainBundlePath = Bundle.main.bundlePath
+        if mainBundlePath.hasSuffix(".app") && FileManager.default.fileExists(atPath: mainBundlePath) {
+            appPath = mainBundlePath
+        } else if FileManager.default.fileExists(atPath: "/Applications/ClyoCloud.app") {
+            appPath = "/Applications/ClyoCloud.app"
+        } else {
+            appPath = "/Applications/ClyoCloud.app"
+        }
+
+        let plistContent = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>dev.weexnes.clyocloud</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>/usr/bin/open</string>
+                <string>-a</string>
+                <string>\(appPath)</string>
+            </array>
+            <key>RunAtLoad</key>
+            <true/>
+            <key>ProcessType</key>
+            <string>Interactive</string>
+        </dict>
+        </plist>
+        """
+
+        do {
+            try plistContent.write(to: launchAgentURL, atomically: true, encoding: .utf8)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            process.arguments = ["load", "-w", launchAgentURL.path]
+            try? process.run()
+            print("Successfully installed and loaded LaunchAgent at \(launchAgentURL.path)")
+        } catch {
+            print("Failed to write LaunchAgent plist: \(error)")
+        }
+    }
+
+    private func removeLaunchAgent() {
+        if FileManager.default.fileExists(atPath: launchAgentURL.path) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            process.arguments = ["unload", "-w", launchAgentURL.path]
+            try? process.run()
+            try? FileManager.default.removeItem(at: launchAgentURL)
         }
     }
 }
