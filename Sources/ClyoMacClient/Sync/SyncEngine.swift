@@ -101,25 +101,11 @@ public final class SyncEngine: ObservableObject {
             // Load state manifest
             var manifest = SyncManifestManager.shared.loadManifest(for: pair.id)
 
-            // 1. Fetch remote files
-            let remoteFiles = try await ClyoAPIClient.shared.fetchFiles(path: pair.remotePath)
-            var remoteDict = Dictionary(uniqueKeysWithValues: remoteFiles.filter { !$0.isFolder }.map { ($0.name, $0) })
+            // 1. Fetch remote files (recursively)
+            var remoteDict = try await scanRemoteFiles(basePath: pair.remotePath)
 
-            // 2. Scan local files
-            let localItemNames = try fileManager.contentsOfDirectory(atPath: localURL.path)
-                .filter { shouldSyncItem(name: $0) }
-
-            var localDict: [String: (url: URL, size: Int64, mtime: Date)] = [:]
-            for name in localItemNames {
-                let itemURL = localURL.appendingPathComponent(name)
-                var isDir: ObjCBool = false
-                if fileManager.fileExists(atPath: itemURL.path, isDirectory: &isDir), !isDir.boolValue {
-                    let attrs = try fileManager.attributesOfItem(atPath: itemURL.path)
-                    let size = (attrs[.size] as? Int64) ?? 0
-                    let mtime = (attrs[.modificationDate] as? Date) ?? Date()
-                    localDict[name] = (itemURL, size, mtime)
-                }
-            }
+            // 2. Scan local files (recursively)
+            let localDict = try scanLocalFiles(at: localURL)
 
             // 3. Phase 1: Local Rename Detection
             let missingLocalNames = manifest.items.keys.filter { localDict[$0] == nil && remoteDict[$0] != nil }
@@ -128,9 +114,10 @@ public final class SyncEngine: ObservableObject {
             for oldName in missingLocalNames {
                 guard let oldManifestItem = manifest.items[oldName] else { continue }
                 if let matchingNewName = newLocalNames.first(where: { localDict[$0]?.size == oldManifestItem.size }) {
-                    let oldRemotePath = pair.remotePath.isEmpty ? oldName : "\(pair.remotePath)/\(oldName)"
+                    let oldRemotePath = getFullRemoteFilePath(pairRemotePath: pair.remotePath, fileRelPath: oldName)
+                    let newFileName = (matchingNewName as NSString).lastPathComponent
                     do {
-                        try await ClyoAPIClient.shared.renameFile(oldPath: oldRemotePath, newName: matchingNewName)
+                        try await ClyoAPIClient.shared.renameFile(oldPath: oldRemotePath, newName: newFileName)
                         manifest.items.removeValue(forKey: oldName)
                         if let localInfo = localDict[matchingNewName] {
                             manifest.items[matchingNewName] = SyncManifestItem(
@@ -165,7 +152,8 @@ public final class SyncEngine: ObservableObject {
                 let local = localDict[name]
                 let remote = remoteDict[name]
                 let last = manifest.items[name]
-                let remoteFullPath = pair.remotePath.isEmpty ? name : "\(pair.remotePath)/\(name)"
+                let remoteFolderPath = getRemoteFolderPath(pairRemotePath: pair.remotePath, fileRelPath: name)
+                let remoteFullPath = getFullRemoteFilePath(pairRemotePath: pair.remotePath, fileRelPath: name)
                 let itemLocalURL = localURL.appendingPathComponent(name)
 
                 if let local = local, let remote = remote, let last = last {
@@ -175,7 +163,7 @@ public final class SyncEngine: ObservableObject {
 
                     if localChanged && !remoteChanged {
                         // Local modified -> Upload
-                        try await ClyoAPIClient.shared.upload(files: [local.url], toPath: pair.remotePath)
+                        try await ClyoAPIClient.shared.upload(files: [local.url], toPath: remoteFolderPath)
                         manifest.items[name] = SyncManifestItem(
                             size: local.size,
                             localMtime: local.mtime.timeIntervalSince1970,
@@ -228,7 +216,7 @@ public final class SyncEngine: ObservableObject {
                         manifest.items.removeValue(forKey: name)
                     } else {
                         // Locally modified while remotely deleted -> re-upload to remote
-                        try await ClyoAPIClient.shared.upload(files: [local.url], toPath: pair.remotePath)
+                        try await ClyoAPIClient.shared.upload(files: [local.url], toPath: remoteFolderPath)
                         manifest.items[name] = SyncManifestItem(
                             size: local.size,
                             localMtime: local.mtime.timeIntervalSince1970,
@@ -263,7 +251,7 @@ public final class SyncEngine: ObservableObject {
                     let timeDiff = local.mtime.timeIntervalSince(remote.modifiedDate)
                     if timeDiff > 3.0 && local.size != remote.size {
                         // Local is newer -> Upload
-                        try await ClyoAPIClient.shared.upload(files: [local.url], toPath: pair.remotePath)
+                        try await ClyoAPIClient.shared.upload(files: [local.url], toPath: remoteFolderPath)
                         manifest.items[name] = SyncManifestItem(
                             size: local.size,
                             localMtime: local.mtime.timeIntervalSince1970,
@@ -289,7 +277,7 @@ public final class SyncEngine: ObservableObject {
 
                 } else if let local = local, remote == nil, last == nil {
                     // Scenario F: Brand new local file
-                    try await ClyoAPIClient.shared.upload(files: [local.url], toPath: pair.remotePath)
+                    try await ClyoAPIClient.shared.upload(files: [local.url], toPath: remoteFolderPath)
                     manifest.items[name] = SyncManifestItem(
                         size: local.size,
                         localMtime: local.mtime.timeIntervalSince1970,
@@ -322,11 +310,93 @@ public final class SyncEngine: ObservableObject {
         }
     }
 
+    // MARK: - Recursive Scanners & Path Helpers
+
+    private func scanLocalFiles(at rootURL: URL) throws -> [String: (url: URL, size: Int64, mtime: Date)] {
+        var results: [String: (url: URL, size: Int64, mtime: Date)] = [:]
+        let fileManager = FileManager.default
+
+        func scanDirectory(currentURL: URL, relativePrefix: String) throws {
+            let items = try fileManager.contentsOfDirectory(atPath: currentURL.path)
+            for item in items {
+                guard shouldSyncItem(name: item) else { continue }
+                let itemURL = currentURL.appendingPathComponent(item)
+                let relPath = relativePrefix.isEmpty ? item : "\(relativePrefix)/\(item)"
+
+                var isDir: ObjCBool = false
+                if fileManager.fileExists(atPath: itemURL.path, isDirectory: &isDir) {
+                    if isDir.boolValue {
+                        try scanDirectory(currentURL: itemURL, relativePrefix: relPath)
+                    } else {
+                        let attrs = try fileManager.attributesOfItem(atPath: itemURL.path)
+                        let size = (attrs[.size] as? Int64) ?? 0
+                        let mtime = (attrs[.modificationDate] as? Date) ?? Date()
+                        results[relPath] = (itemURL, size, mtime)
+                    }
+                }
+            }
+        }
+
+        try scanDirectory(currentURL: rootURL, relativePrefix: "")
+        return results
+    }
+
+    private func scanRemoteFiles(basePath: String) async throws -> [String: ClyoFile] {
+        var results: [String: ClyoFile] = [:]
+
+        func scanRemoteDir(currentPath: String, relativePrefix: String) async throws {
+            let files = try await ClyoAPIClient.shared.fetchFiles(path: currentPath)
+            for file in files {
+                guard shouldSyncItem(name: file.name) else { continue }
+                let relPath = relativePrefix.isEmpty ? file.name : "\(relativePrefix)/\(file.name)"
+                let fullPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
+
+                if file.isFolder {
+                    try await scanRemoteDir(currentPath: fullPath, relativePrefix: relPath)
+                } else {
+                    let adjustedFile = ClyoFile(
+                        name: relPath,
+                        size: file.size,
+                        type: file.type,
+                        meta: file.meta,
+                        lastModified: file.lastModified,
+                        isFolder: false
+                    )
+                    results[relPath] = adjustedFile
+                }
+            }
+        }
+
+        try await scanRemoteDir(currentPath: basePath, relativePrefix: "")
+        return results
+    }
+
+    private func getRemoteFolderPath(pairRemotePath: String, fileRelPath: String) -> String {
+        let subDir = (fileRelPath as NSString).deletingLastPathComponent
+        let base = pairRemotePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if base.isEmpty {
+            return subDir
+        }
+        if subDir.isEmpty {
+            return base
+        }
+        return "\(base)/\(subDir)"
+    }
+
+    private func getFullRemoteFilePath(pairRemotePath: String, fileRelPath: String) -> String {
+        let base = pairRemotePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if base.isEmpty {
+            return fileRelPath
+        }
+        return "\(base)/\(fileRelPath)"
+    }
+
     private func shouldSyncItem(name: String) -> Bool {
-        if ignoredFiles.contains(name) { return false }
-        if name.hasPrefix(".") { return false }
-        if name.hasSuffix(".cloudinfo") { return false }
-        if name.hasSuffix(".crdownload") || name.hasSuffix(".tmp") { return false }
+        let base = (name as NSString).lastPathComponent
+        if ignoredFiles.contains(base) { return false }
+        if base.hasPrefix(".") { return false }
+        if base.hasSuffix(".cloudinfo") { return false }
+        if base.hasSuffix(".crdownload") || base.hasSuffix(".tmp") { return false }
         return true
     }
 }
