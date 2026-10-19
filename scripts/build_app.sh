@@ -31,9 +31,9 @@ chmod +x "$MACOS_DIR/ClyoCloud"
 
 cp "$ROOT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 
-# Copy logo icon if exists
-if [ -f "$ROOT_DIR/../ClyoCloud/public/wicon.png" ]; then
-    cp "$ROOT_DIR/../ClyoCloud/public/wicon.png" "$RESOURCES_DIR/AppIcon.png"
+# Copy app icon
+if [ -f "$ROOT_DIR/Resources/AppIcon.icns" ]; then
+    cp "$ROOT_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 fi
 
 # Ad-hoc code sign the bundle for consistent macOS identity
