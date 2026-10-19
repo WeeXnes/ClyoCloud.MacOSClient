@@ -114,38 +114,8 @@ struct WallpaperThumbnailCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             ZStack(alignment: .bottomTrailing) {
-                // Thumbnail
-                if let thumbURL = ClyoAPIClient.shared.getThumbnailURL(for: file.name) {
-                    AsyncImage(url: thumbURL) { phase in
-                        switch phase {
-                        case .empty:
-                            Rectangle()
-                                .fill(Color.secondary.opacity(0.15))
-                                .overlay(ProgressView().scaleEffect(0.5))
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(16/9, contentMode: .fill)
-                                .clipped()
-                        case .failure:
-                            Rectangle()
-                                .fill(Color.secondary.opacity(0.15))
-                                .overlay(
-                                    Image(systemName: "photo")
-                                        .foregroundColor(.secondary)
-                                )
-                        @unknown default:
-                            EmptyView()
-                        }
-                    }
-                    .frame(height: 85)
-                    .cornerRadius(8)
-                } else {
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.15))
-                        .frame(height: 85)
-                        .cornerRadius(8)
-                }
+                // Authenticated Thumbnail
+                AuthenticatedThumbnailView(filePath: file.name)
 
                 // Status or Action Button
                 if isSetting {
@@ -165,8 +135,8 @@ struct WallpaperThumbnailCard: View {
                 }
             }
 
-            // Filename
-            Text(file.name)
+            // Filename (display basename)
+            Text((file.name as NSString).lastPathComponent)
                 .font(.system(size: 10, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -190,5 +160,40 @@ struct WallpaperThumbnailCard: View {
         .padding(6)
         .background(Color.primary.opacity(0.04))
         .cornerRadius(10)
+    }
+}
+
+struct AuthenticatedThumbnailView: View {
+    let filePath: String
+    @State private var image: NSImage?
+    @State private var isLoading: Bool = true
+
+    var body: some View {
+        Group {
+            if let image = image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(16/9, contentMode: .fill)
+                    .clipped()
+            } else if isLoading {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.15))
+                    .overlay(ProgressView().scaleEffect(0.5))
+            } else {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.15))
+                    .overlay(
+                        Image(systemName: "photo")
+                            .foregroundColor(.secondary)
+                    )
+            }
+        }
+        .frame(height: 85)
+        .cornerRadius(8)
+        .task(id: filePath) {
+            isLoading = true
+            image = await ClyoAPIClient.shared.fetchThumbnailImage(for: filePath)
+            isLoading = false
+        }
     }
 }

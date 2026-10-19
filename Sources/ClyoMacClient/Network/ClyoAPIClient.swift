@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 public enum ClyoAPIError: LocalizedError {
     case invalidURL
@@ -207,6 +208,18 @@ public final class ClyoAPIClient {
         try checkResponse(response, data: data)
     }
 
+    public func renameFile(oldPath: String, newName: String) async throws {
+        let url = try makeURL(endpoint: "/api/rename")
+        var req = createRequest(url: url, method: "POST")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = ["oldPath": oldPath, "newName": newName]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await session.data(for: req)
+        try checkResponse(response, data: data)
+    }
+
     public func deleteFile(path: String, permanent: Bool = false) async throws {
         let url = try makeURL(endpoint: "/api/files")
         var req = createRequest(url: url, method: "DELETE")
@@ -217,6 +230,46 @@ public final class ClyoAPIClient {
 
         let (data, response) = try await session.data(for: req)
         try checkResponse(response, data: data)
+    }
+
+    // MARK: - Image & Thumbnail Caching
+
+    private let thumbnailCache = NSCache<NSString, NSImage>()
+
+    public func fetchThumbnailImage(for path: String) async -> NSImage? {
+        let cleaned = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let cacheKey = cleaned as NSString
+        if let cached = thumbnailCache.object(forKey: cacheKey) {
+            return cached
+        }
+
+        guard let encodedPath = cleaned.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            return nil
+        }
+
+        // 1. Try /thumbnail first (authenticated)
+        if let thumbURL = try? makeURL(endpoint: "/thumbnail/\(encodedPath)") {
+            let req = createRequest(url: thumbURL)
+            if let (data, response) = try? await session.data(for: req),
+               let http = response as? HTTPURLResponse, http.statusCode == 200,
+               let img = NSImage(data: data) {
+                thumbnailCache.setObject(img, forKey: cacheKey)
+                return img
+            }
+        }
+
+        // 2. Fallback to /file if thumbnail hasn't been generated yet
+        if let fileURL = try? makeURL(endpoint: "/file/\(encodedPath)") {
+            let req = createRequest(url: fileURL)
+            if let (data, response) = try? await session.data(for: req),
+               let http = response as? HTTPURLResponse, http.statusCode == 200,
+               let img = NSImage(data: data) {
+                thumbnailCache.setObject(img, forKey: cacheKey)
+                return img
+            }
+        }
+
+        return nil
     }
 
     // MARK: - Upload (Multipart/form-data)

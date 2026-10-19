@@ -43,3 +43,24 @@ public enum SyncState: Equatable {
     case error(String)
     case paused
 }
+
+public struct SyncManifestItem: Codable {
+    public var size: Int64
+    public var localMtime: Double
+    public var remoteMtime: Double
+
+    public init(size: Int64, localMtime: Double, remoteMtime: Double) {
+        self.size = size
+        self.localMtime = localMtime
+        self.remoteMtime = remoteMtime
+    }
+}
+
+public struct SyncManifest: Codable {
+    public var items: [String: SyncManifestItem] = [:]
+
+    public init(items: [String: SyncManifestItem] = [:]) {
+        self.items = items
+    }
+}
+
