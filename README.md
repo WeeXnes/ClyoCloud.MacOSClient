@@ -1,52 +1,57 @@
-# 🌌 ClyoCloud for macOS (Native Menu Bar Client)
+# ClyoCloud for macOS
 
-A lightweight, native macOS companion application for **ClyoCloud**, living directly in your top menu bar with native macOS integration, real-time two-way folder synchronization, drag-and-drop cloud uploads, cloud wallpaper management, and instant clipboard uploader.
+Native macOS menu bar client for [ClyoCloud](https://code.weexnes.dev/ClyoCloud): two-way folder sync, drag-and-drop uploads, cloud wallpapers and a clipboard uploader.
 
----
+[![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-000000?style=flat-square&labelColor=1f1f1f)](#requirements)
+[![Stack](https://img.shields.io/badge/stack-Swift-000000?style=flat-square&labelColor=1f1f1f)](#build-from-source)
 
-## 🚀 Key Features
+A lightweight companion app that lives in your top menu bar, with native macOS integration, real-time two-way folder
+synchronization, drag-and-drop cloud uploads, cloud wallpaper management, and an instant clipboard uploader.
 
-* **⚡ Native Top Menu Bar Integration**:
-  * Clean monochrome glyph matching macOS status icons (Battery, Control Center, Media Player).
-  * Dynamic status indicator (idle, animated rotating sync icon during active transfers, offline indicator).
-  * Left-click opens the translucent frosted-glass popover; right-click opens a quick utility context menu.
-  * Direct **Drag-and-Drop onto the menu bar icon** from Finder to trigger an instant upload.
+## Features
 
-* **📂 Drag-and-Drop Upload Zone**:
-  * Glassmorphic drag target in the popover accepting multiple files or folders from Finder.
-  * Destination folder picker (upload to cloud root `/` or any specific remote folder).
-  * Real-time transfer progress bars and recent activity tracking.
+- **Native menu bar integration:**
+  - Clean monochrome glyph matching the macOS status icons (Battery, Control Center, Media Player).
+  - Dynamic status indicator (idle, animated rotating sync icon during active transfers, offline indicator).
+  - Left-click opens the translucent frosted-glass popover; right-click opens a quick utility context menu.
+  - **Drag and drop onto the menu bar icon** from Finder to start an upload immediately.
+- **Drag-and-drop upload zone:**
+  - Glassmorphic drop target in the popover that accepts multiple files or folders from Finder.
+  - Destination folder picker (upload to the cloud root `/` or any remote folder).
+  - Real-time transfer progress bars and recent activity tracking.
+- **Cloud desktop wallpaper gallery (submenu):**
+  - Scrollable grid view of your cloud wallpapers (`/api/wallpapers`).
+  - One-click **"Set as Desktop Wallpaper"** applies the image to your Mac screens natively via `NSWorkspace`.
+- **Real-time two-way folder synchronization:**
+  - Kernel-level **macOS `FSEvents`** monitoring detects local file additions, modifications and deletions with no CPU overhead.
+  - Two-way differential sync comparing remote files (`/api/files`) against local directories.
+  - Automatic filtering of macOS metadata (`.DS_Store`, `.localized`, temporary downloads, `.cloudinfo`).
+- **Screenshot and clipboard uploader:**
+  - Click **"Upload Clipboard"** or press **`⌥ + ⌘ + U`** (Option + Command + U) anywhere on your Mac to grab the image on your clipboard, upload it to ClyoCloud, and copy the share link.
+- **Dual authentication:**
+  - **Quick device token / QR payload:** paste a device token or QR JSON payload from ClyoCloud settings (registered in `devices.json` with a 365-day session). Reports the device model `Mac (...)` to the server.
+  - **Standard credentials:** username and password, with support for TOTP 2FA codes and recovery scratch keys.
+  - Tokens are stored in the **macOS Keychain**.
+- **Launch at login:**
+  - Uses the macOS 13+ `SMAppService` to start ClyoCloud silently on system boot.
 
-* **🖼️ Cloud Desktop Wallpaper Gallery (Submenu)**:
-  * Dedicated scrollable grid view fetching your cloud wallpapers (`/api/wallpapers`).
-  * Instant 1-click **"Set as Desktop Wallpaper"** action that applies the image to your Mac screens natively via `NSWorkspace`.
+## Requirements
 
-* **🔄 Real-Time Two-Way Folder Synchronization**:
-  * Kernel-level **macOS `FSEvents`** monitoring: detects local file additions, modifications, and deletions with zero CPU overhead.
-  * Two-way differential sync comparing remote files (`/api/files`) against local directories.
-  * Automatic filtering of macOS metadata (`.DS_Store`, `.localized`, temporary downloads, `.cloudinfo`).
+- macOS 13+ (Ventura, Sonoma, or later)
+- Apple Command Line Tools (`swiftc`, `make`)
 
-* **📸 Screenshot & Clipboard Uploader**:
-  * Click **"Upload Clipboard"** or press **`⌥ + ⌘ + U`** (Option + Command + U) anywhere on your Mac to grab the image on your clipboard, upload it directly to ClyoCloud, and automatically copy the share link.
+## Install
 
-* **🔑 Dual Authentication**:
-  * **Quick Device Token / QR Payload**: Paste a device token or QR JSON payload from ClyoCloud settings (registered in `devices.json` with a 365-day session). Automatically reports device model `Mac (...)` to the server.
-  * **Standard Credentials**: Username and Password with support for TOTP 2FA codes and recovery scratch keys.
-  * Tokens stored securely in the **macOS Keychain**.
+```bash
+make install
+```
 
-* **🚀 Launch at Login**:
-  * Integrated with macOS 13+ `SMAppService` to automatically start ClyoCloud silently on system boot.
+This moves `ClyoCloud.app` to `/Applications/ClyoCloud.app` for permanent access.
 
----
+## Build from source
 
-## 🛠 Building & Running
-
-### Prerequisites
-* macOS 13+ (Ventura, Sonoma, or later)
-* Apple Command Line Tools (`swiftc`, `make`)
-
-### Build & Run
 Run from the project root:
+
 ```bash
 # Build standalone ClyoCloud.app
 make app
@@ -55,17 +60,9 @@ make app
 make run
 ```
 
-### Install to Applications
-```bash
-make install
-```
-This moves `ClyoCloud.app` to `/Applications/ClyoCloud.app` for permanent access.
+## Project structure
 
----
-
-## 📁 Project Architecture
-
-```
+```text
 ClyoMacClient/
 ├── Makefile                          # Build, run, and install commands
 ├── scripts/
@@ -106,3 +103,7 @@ ClyoMacClient/
             ├── TransferItem.swift    # Upload/download progress item
             └── DevicePayload.swift   # QR login payload parser
 ```
+
+## License
+
+No license has been chosen yet.
